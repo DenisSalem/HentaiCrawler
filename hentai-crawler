@@ -1,0 +1,130 @@
+#! /usr/bin/env python3
+
+#    Copyright 2021 Denis Salem
+#
+#    This file is part of Hentai Crawler.
+#
+#    Hentai Crawler is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    Hentai Crawler is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with Hentai Crawler.  If not, see <http://www.gnu.org/licenses/>.
+
+""" SUPPORTED SERVICES """
+services = {
+    "e-hentai.org" : {
+        "target_attr_id_name": "id",
+        "target_attr_id_value": "img",
+        "target_attr_src_name": "src",
+        "next_page_attr_id_name": "id",
+        "next_page_attr_id_value": "next",
+        "next_page_attr_name": "href"
+    },
+}
+
+print("\033[38;5;206mHentai crawler v1.0.0\033[0m")
+
+try:
+    import io
+    import os
+    import sys
+    import time
+    import pycurl
+    from urllib.parse import urlparse
+    from html.parser import HTMLParser
+    
+except ModuleNotFoundError as e:
+    print(e)
+    exit()
+
+""" SOME DEFINITIONS """
+
+def get_remote_resource(url, decode=True):
+    response = io.BytesIO()
+    c = pycurl.Curl()
+    c.setopt(c.URL, url)
+    c.setopt(c.WRITEFUNCTION, response.write)
+    c.setopt(pycurl.USERAGENT, 'Mozilla/5.0 (X11; Linux x86_64; rv:78.0) Gecko/20100101 Firefox/78.0')
+    c.perform()
+    c.close()
+    if decode:
+        return response.getvalue().decode('UTF-8')
+
+    else:
+        return response.getvalue()
+        
+class HentaiCrawlerHTMLParser(HTMLParser):
+    def __init__(self, url):
+        self.service_identifier = urlparse(url).netloc
+        self.target = None
+        self.previous_next_page = None
+        self.next_page = None
+        try:
+            self.hooks = services[self.service_identifier]
+            
+        except KeyError:
+            print("Unsupported service :(")
+            
+        super().__init__()
+        
+    def feed(self, url):
+        self.target = None
+        self.next_page = None
+        super().feed(get_remote_resource(url))
+        
+    def handle_starttag(self, tag, attrs):
+        meta = { attr[0] : attr[1] for attr in attrs}
+        if self.hooks["target_attr_id_name"] in meta.keys() and meta[self.hooks["target_attr_id_name"]] == self.hooks["target_attr_id_value"]:
+            self.target = meta[self.hooks["target_attr_src_name"]]
+            
+        if self.hooks["next_page_attr_id_name"] in meta.keys() and meta[self.hooks["next_page_attr_id_name"]] == self.hooks["next_page_attr_id_value"]:
+            self.previous_next_page = self.next_page
+            self.next_page = meta[self.hooks["next_page_attr_name"]]
+
+""" APPLICATION LOGIC """
+
+if len(sys.argv) < 2:
+    print("usage: hentai-crawler <url entry point> <destination folder>")
+    exit()
+
+entry_point_url = sys.argv[1]
+dest = sys.argv[2]
+
+html_parser = HentaiCrawlerHTMLParser(entry_point_url)
+
+keep_crawling = entry_point_url
+file_index = 0
+
+try:
+    os.mkdir(dest)
+except FileExistsError:
+    print("Destination folder already exists.")
+    
+while keep_crawling:
+    html_parser.feed(keep_crawling)
+    if html_parser.next_page == keep_crawling:
+        print("Done")
+        break
+        
+    else:
+        keep_crawling = html_parser.next_page
+        if html_parser.target != None:
+            remote_file = get_remote_resource(html_parser.target, decode=False)
+            path=dest+'/'+format(file_index,"04x")+".jpg"
+            open(path, "wb").write(remote_file)
+            print("Save as",path)
+            file_index+=1
+            
+        else:
+            print("Done");
+            break;
+            
+    time.sleep(1)
+    
