@@ -29,7 +29,7 @@ services = {
     },
 }
 
-print("\033[38;5;206mHentai crawler v1.0.0\033[0m")
+print("\033[38;5;206mHentai crawler v1.0.1\033[0m")
 
 try:
     import io
@@ -53,12 +53,13 @@ def get_remote_resource(url, decode=True):
     c.setopt(c.WRITEFUNCTION, response.write)
     c.setopt(pycurl.USERAGENT, 'Mozilla/5.0 (X11; Linux x86_64; rv:78.0) Gecko/20100101 Firefox/78.0')
     c.perform()
+    code = c.getinfo(c.RESPONSE_CODE)
     c.close()
     if decode:
-        return response.getvalue().decode('UTF-8')
+        return (code, response.getvalue().decode('UTF-8'))
 
     else:
-        return response.getvalue()
+        return (code, response.getvalue())
         
 class HentaiCrawlerHTMLParser(HTMLParser):
     def __init__(self, url):
@@ -66,6 +67,8 @@ class HentaiCrawlerHTMLParser(HTMLParser):
         self.target = None
         self.previous_next_page = None
         self.next_page = None
+        self.code = None
+        self.content = None
         try:
             self.hooks = services[self.service_identifier]
             
@@ -77,7 +80,8 @@ class HentaiCrawlerHTMLParser(HTMLParser):
     def feed(self, url):
         self.target = None
         self.next_page = None
-        super().feed(get_remote_resource(url))
+        self.code, self.content = get_remote_resource(url)
+        super().feed(self.content)
         
     def handle_starttag(self, tag, attrs):
         meta = { attr[0] : attr[1] for attr in attrs}
@@ -104,27 +108,30 @@ file_index = 0
 
 try:
     os.mkdir(dest)
+    
 except FileExistsError:
     print("Destination folder already exists.")
     
 while keep_crawling:
     html_parser.feed(keep_crawling)
-    if html_parser.next_page == keep_crawling:
-        print("Done")
-        break
+
+    if html_parser.target != None:
+        code, remote_file = get_remote_resource(html_parser.target, decode=False)
+        path=dest+'/'+format(file_index,"04x")+".jpg"
+        open(path, "wb").write(remote_file)
+        print("Save as", path.replace('//','/'))
+        file_index+=1
         
     else:
+        print("Done");
+        break;
+        
+    if html_parser.next_page == keep_crawling:
+        print("Done")
+        
+        break
+    else:
         keep_crawling = html_parser.next_page
-        if html_parser.target != None:
-            remote_file = get_remote_resource(html_parser.target, decode=False)
-            path=dest+'/'+format(file_index,"04x")+".jpg"
-            open(path, "wb").write(remote_file)
-            print("Save as",path)
-            file_index+=1
-            
-        else:
-            print("Done");
-            break;
-            
-    time.sleep(1)
+
+    time.sleep(2)
     
